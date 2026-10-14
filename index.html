@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel do clima</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Painel do clima</h1>
+      <p>O tempo agora e a previsão dos próximos dias em qualquer cidade.</p>
+    </header>
+
+    <form id="form-busca" role="search">
+      <label for="campo-busca" class="sr-only">Nome da cidade</label>
+      <input id="campo-busca" type="text" placeholder="Digite uma cidade, ex.: Curitiba" autocomplete="off" required>
+      <button id="botao-buscar" type="submit">Buscar</button>
+    </form>
+
+    <section id="resultado" aria-live="polite">
+      <p class="aviso">Busque uma cidade para ver o clima.</p>
+    </section>
+  </main>
+
+  <footer>Dados fornecidos pela <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>.</footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

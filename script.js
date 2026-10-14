@@ -1,4 +1,4 @@
-// Commit 4 — adiciona "Carregando...", tratamento de erros e proteção do texto vindo da API
+// Painel do clima — consome a Open-Meteo (sem chave de API)
 const URL_GEOCODING = "https://geocoding-api.open-meteo.com/v1/search";
 const URL_PREVISAO = "https://api.open-meteo.com/v1/forecast";
 
@@ -50,6 +50,11 @@ function escapar(texto) {
   return div.innerHTML;
 }
 
+function arredondar(valor) {
+  return Math.round(valor);
+}
+
+// 1) Converte o nome da cidade em coordenadas
 async function buscarCidade(nome) {
   const url = `${URL_GEOCODING}?name=${encodeURIComponent(nome)}&count=1&language=pt&format=json`;
   const resposta = await fetch(url);
@@ -59,10 +64,17 @@ async function buscarCidade(nome) {
   return dados.results[0];
 }
 
+// 2) Busca o clima atual e a previsão dos próximos dias
 async function buscarPrevisao(latitude, longitude) {
-  const url = `${URL_PREVISAO}?latitude=${latitude}&longitude=${longitude}` +
-    `&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=auto`;
-  const resposta = await fetch(url);
+  const params = new URLSearchParams({
+    latitude,
+    longitude,
+    current: "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min",
+    timezone: "auto",
+    forecast_days: 5,
+  });
+  const resposta = await fetch(`${URL_PREVISAO}?${params}`);
   if (!resposta.ok) throw new Error("API_FORA");
   return resposta.json();
 }
@@ -70,12 +82,39 @@ async function buscarPrevisao(latitude, longitude) {
 function mostrarClima(cidade, previsao) {
   const atual = previsao.current;
   const [descricao, icone] = descreverClima(atual.weather_code);
+  const local = [cidade.admin1, cidade.country].filter(Boolean).join(", ");
+
+  const dias = previsao.daily.time.map((data, i) => {
+    const [desc, ico] = descreverClima(previsao.daily.weather_code[i]);
+    const nome = new Date(`${data}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "short" });
+    return `
+      <li class="dia">
+        <div class="nome">${i === 0 ? "hoje" : nome}</div>
+        <div class="icone" role="img" aria-label="${escapar(desc)}">${ico}</div>
+        <div class="minmax">
+          <strong>${arredondar(previsao.daily.temperature_2m_max[i])}°</strong>
+          <span class="min">${arredondar(previsao.daily.temperature_2m_min[i])}°</span>
+        </div>
+      </li>`;
+  }).join("");
 
   area.innerHTML = `
-    <h2>${icone} ${escapar(cidade.name)}, ${escapar(cidade.country || "")}</h2>
-    <p>${Math.round(atual.temperature_2m)}°C — ${escapar(descricao)}</p>
-    <p>Umidade: ${atual.relative_humidity_2m}%</p>
-    <p>Vento: ${Math.round(atual.wind_speed_10m)} km/h</p>
+    <article class="agora">
+      <div class="icone" role="img" aria-label="${escapar(descricao)}">${icone}</div>
+      <div>
+        <h2>${escapar(cidade.name)}</h2>
+        <p class="local">${escapar(local)}</p>
+        <div class="temp">${arredondar(atual.temperature_2m)}°C</div>
+        <div class="descricao">${escapar(descricao)}</div>
+      </div>
+      <ul class="detalhes">
+        <li><span>Sensação</span> ${arredondar(atual.apparent_temperature)}°C</li>
+        <li><span>Umidade</span> ${atual.relative_humidity_2m}%</li>
+        <li><span>Vento</span> ${arredondar(atual.wind_speed_10m)} km/h</li>
+      </ul>
+    </article>
+    <h3 class="previsao-titulo">Próximos 5 dias</h3>
+    <ul class="previsao">${dias}</ul>
   `;
 }
 

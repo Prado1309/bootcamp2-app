@@ -1,4 +1,10 @@
-// Painel do clima — consome a Open-Meteo (sem chave de API)
+// Painel do clima — Open-Meteo (clima) + Supabase (favoritos)
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = "https://fabisardtivzeopwslgj.supabase.co";
+const SUPABASE_KEY = "sb_publishable_BQwJimzNpNegFzRbB7nOwA_3BhbevIh";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const URL_GEOCODING = "https://geocoding-api.open-meteo.com/v1/search";
 const URL_PREVISAO = "https://api.open-meteo.com/v1/forecast";
 
@@ -6,6 +12,8 @@ const form = document.getElementById("form-busca");
 const campo = document.getElementById("campo-busca");
 const botao = document.getElementById("botao-buscar");
 const area = document.getElementById("resultado");
+const listaFavoritos = document.getElementById("lista-favoritos");
+let favoritos = []; // cópia local da lista que veio do banco
 
 // Códigos de clima da Open-Meteo (WMO) -> descrição e ícone
 const CLIMA = {
@@ -106,6 +114,8 @@ function mostrarClima(cidade, previsao) {
         <p class="local">${escapar(local)}</p>
         <div class="temp">${arredondar(atual.temperature_2m)}°C</div>
         <div class="descricao">${escapar(descricao)}</div>
+        <button id="botao-favoritar" type="button" class="botao-favoritar">☆ Favoritar</button>
+        <p id="msg-favorito" class="msg-fav" role="status"></p>
       </div>
       <ul class="detalhes">
         <li><span>Sensação</span> ${arredondar(atual.apparent_temperature)}°C</li>
@@ -116,6 +126,9 @@ function mostrarClima(cidade, previsao) {
     <h3 class="previsao-titulo">Próximos 5 dias</h3>
     <ul class="previsao">${dias}</ul>
   `;
+
+  // CREATE: clicar em "Favoritar" salva esta cidade no banco
+  document.getElementById("botao-favoritar").addEventListener("click", () => salvarFavorito(cidade));
 }
 
 function mostrarErro(erro) {
@@ -128,6 +141,7 @@ function mostrarErro(erro) {
   area.innerHTML = `<p class="erro">${mensagem}</p>`;
 }
 
+// Busca pelo nome digitado
 async function carregarClima(nomeCidade) {
   area.innerHTML = '<p class="aviso">Carregando...</p>';
   botao.disabled = true;
@@ -142,8 +156,135 @@ async function carregarClima(nomeCidade) {
   }
 }
 
+// Busca direto pelas coordenadas (usada ao clicar em um favorito)
+async function carregarPorCidade(cidade) {
+  area.innerHTML = '<p class="aviso">Carregando...</p>';
+  botao.disabled = true;
+  try {
+    const previsao = await buscarPrevisao(cidade.latitude, cidade.longitude);
+    mostrarClima(cidade, previsao);
+  } catch (erro) {
+    mostrarErro(erro);
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+// Mostra (ou limpa) uma mensagem de erro acima da lista de favoritos
+function avisoFavoritos(texto) {
+  let aviso = document.getElementById("aviso-favoritos");
+  if (!aviso) {
+    aviso = document.createElement("p");
+    aviso.id = "aviso-favoritos";
+    aviso.className = "erro";
+    aviso.setAttribute("role", "alert");
+    listaFavoritos.before(aviso);
+  }
+  aviso.textContent = texto;
+  aviso.hidden = !texto;
+}
+
+// CREATE — salva a cidade no banco
+async function salvarFavorito(cidade) {
+  const msg = document.getElementById("msg-favorito");
+
+  const jaExiste = favoritos.some(
+    (f) => f.latitude === cidade.latitude && f.longitude === cidade.longitude
+  );
+  if (jaExiste) {
+    msg.textContent = "Essa cidade já está nos favoritos.";
+    return;
+  }
+
+  const { error } = await supabase.from("favoritos").insert({
+    cidade: cidade.name,
+    pais: cidade.country || null,
+    latitude: cidade.latitude,
+    longitude: cidade.longitude,
+  });
+
+  if (error) {
+    console.error(error);
+    msg.textContent = "Não foi possível salvar. Tente novamente.";
+    return;
+  }
+  msg.textContent = "Cidade salva nos favoritos!";
+  listarFavoritos();
+}
+
+// READ — busca os favoritos no banco e desenha na tela
+async function listarFavoritos() {
+  const { data, error } = await supabase
+    .from("favoritos")
+    .select("*")
+    .order("criado_em");
+
+  if (error) {
+    console.error(error);
+    listaFavoritos.innerHTML = "";
+    avisoFavoritos("Não foi possível carregar seus favoritos. Tente recarregar a página.");
+    return;
+  }
+  avisoFavoritos("");
+  favoritos = data;
+  renderizarFavoritos(favoritos);
+}
+
+function renderizarFavoritos(lista) {
+  if (lista.length === 0) {
+    listaFavoritos.innerHTML =
+      '<li class="aviso">Nenhuma cidade favorita ainda. Busque uma cidade e clique em Favoritar.</li>';
+    return;
+  }
+  listaFavoritos.innerHTML = lista.map((f) => `
+    <li class="favorito">
+      <button type="button" class="favorito-abrir" data-id="${f.id}">
+        ${escapar(f.cidade)}${f.pais ? ", " + escapar(f.pais) : ""}
+      </button>
+      <button type="button" class="favorito-excluir" data-id="${f.id}"
+              aria-label="Excluir ${escapar(f.cidade)} dos favoritos">✕</button>
+    </li>`).join("");
+}
+
+// DELETE — remove o favorito do banco e atualiza a lista
+async function removerFavorito(id) {
+  const { error } = await supabase.from("favoritos").delete().eq("id", id);
+  if (error) {
+    console.error(error);
+    avisoFavoritos("Não foi possível excluir. Tente novamente.");
+    return;
+  }
+  avisoFavoritos("");
+  listarFavoritos();
+}
+
+// Clicar em um favorito carrega o clima daquela cidade
+listaFavoritos.addEventListener("click", (evento) => {
+  const excluir = evento.target.closest(".favorito-excluir");
+  if (excluir) {
+    removerFavorito(Number(excluir.dataset.id));
+    return;
+  }
+
+  const abrir = evento.target.closest(".favorito-abrir");
+  if (abrir) {
+    const fav = favoritos.find((f) => f.id === Number(abrir.dataset.id));
+    if (fav) {
+      carregarPorCidade({
+        name: fav.cidade,
+        country: fav.pais,
+        latitude: fav.latitude,
+        longitude: fav.longitude,
+      });
+    }
+  }
+});
+
 form.addEventListener("submit", (evento) => {
   evento.preventDefault();
   const termo = campo.value.trim();
   if (termo) carregarClima(termo);
 });
+
+// Ao abrir a página, carrega os favoritos salvos
+listarFavoritos();
